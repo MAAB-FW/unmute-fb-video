@@ -1,6 +1,6 @@
 # Unmute FB Video
 
-🔊 Automatically unmutes Facebook videos/reels and forces volume to 30%.
+🔊 Automatically unmutes Facebook videos/reels and remembers your preferred volume.
 
 Perfect for avoiding manual unmute clicks every time a video plays.
 
@@ -8,7 +8,8 @@ Perfect for avoiding manual unmute clicks every time a video plays.
 
 - Automatically unmutes Facebook videos
 - Works with Feed videos and Reels
-- Forces volume to 30%
+- Remembers your preferred volume
+- Automatically applies saved volume to new videos
 - Prevents Facebook from muting videos again
 - Lightweight and fast
 
@@ -21,12 +22,19 @@ Perfect for avoiding manual unmute clicks every time a video plays.
 
 3. Done! The script will run automatically on Facebook.
 
-## ⚙️ Custom Volume
+## ⚙️ How It Works
+
+- Default volume is `30%`
+- When you change the volume manually, the script remembers it
+- New Facebook videos/reels automatically use your saved volume
+- Videos are automatically unmuted
+
+## 🛠️ Default Volume
 
 Edit this line inside the script:
 
 ```js
-const TARGET_VOLUME = 0.3;
+localStorage.getItem(STORAGE_KEY) || "0.3";
 ```
 
 Examples:
