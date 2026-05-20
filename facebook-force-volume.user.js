@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Unmute FB Video
 // @namespace    https://github.com/MAAB-FW
-// @version      2.0.0
-// @description  Automatically unmutes Facebook videos/reels and forces volume to 30%
+// @version      2.1.0
+// @description  Automatically unmutes Facebook videos/reels and remembers your preferred volume
 // @author       MAAB-FW
 // @homepageURL  https://github.com/MAAB-FW/unmute-fb-video
 // @supportURL   https://github.com/MAAB-FW/unmute-fb-video/issues
@@ -18,22 +18,34 @@
 (function () {
     "use strict";
 
-    const TARGET_VOLUME = 0.3;
+    const STORAGE_KEY = "fb-video-volume";
+
+    // Default volume = 30%
+    let preferredVolume = parseFloat(
+        localStorage.getItem(STORAGE_KEY) || "0.3"
+    );
 
     function applyVolume(video) {
         try {
             video.muted = false;
             video.defaultMuted = false;
-            video.volume = TARGET_VOLUME;
 
-            // Facebook sometimes changes the volume later
+            // Apply saved/preferred volume
+            video.volume = preferredVolume;
+
+            // Facebook sometimes changes volume later
             setTimeout(() => {
                 video.muted = false;
-                video.volume = TARGET_VOLUME;
+                video.volume = preferredVolume;
             }, 300);
         } catch (e) {
             console.error("[Unmute FB Video]", e);
         }
+    }
+
+    function saveVolume(volume) {
+        preferredVolume = volume;
+        localStorage.setItem(STORAGE_KEY, volume.toString());
     }
 
     function processVideos() {
@@ -45,13 +57,20 @@
             if (video.dataset.fbVolumeFixed) return;
             video.dataset.fbVolumeFixed = "1";
 
-            // Re-apply when Facebook changes volume
+            // Detect manual volume changes
             video.addEventListener("volumechange", () => {
-                if (
-                    video.muted ||
-                    Math.abs(video.volume - TARGET_VOLUME) > 0.01
-                ) {
-                    applyVolume(video);
+                try {
+                    // If muted, just unmute
+                    if (video.muted) {
+                        video.muted = false;
+                    }
+
+                    // Save user-changed volume
+                    if (Math.abs(video.volume - preferredVolume) > 0.01) {
+                        saveVolume(video.volume);
+                    }
+                } catch (e) {
+                    console.error("[Unmute FB Video]", e);
                 }
             });
 
