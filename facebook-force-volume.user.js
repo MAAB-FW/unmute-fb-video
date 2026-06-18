@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Unmute FB Video
 // @namespace    https://github.com/MAAB-FW
-// @version      2.1.0
+// @version      2.1.1
 // @description  Automatically unmutes Facebook videos/reels and remembers your preferred volume
 // @author       MAAB-FW
 // @homepageURL  https://github.com/MAAB-FW/unmute-fb-video
@@ -19,25 +19,72 @@
     "use strict";
 
     const STORAGE_KEY = "fb-video-volume";
+    const DEFAULT_VOLUME = 0.3;
+    const APPLY_LOCK_MS = 1200;
+    const MANUAL_KEY_WINDOW_MS = 1200;
+    const REEL_GUARD_MS = 5000;
 
-    // Default volume = 30%
-    let preferredVolume = parseFloat(
-        localStorage.getItem(STORAGE_KEY) || "0.3"
-    );
+    function getStoredVolume() {
+        const rawValue = localStorage.getItem(STORAGE_KEY);
+        const parsedValue = rawValue === null ? NaN : parseFloat(rawValue);
+
+        if (
+            Number.isFinite(parsedValue) &&
+            parsedValue >= 0 &&
+            parsedValue <= 1
+        ) {
+            return parsedValue;
+        }
+
+        return DEFAULT_VOLUME;
+    }
+
+    let preferredVolume = getStoredVolume();
+    let isPointerDown = false;
+    let lastManualKeyAt = 0;
+
+    function markApplying(video, duration = APPLY_LOCK_MS) {
+        video.dataset.fbVolumeApplyingUntil = String(Date.now() + duration);
+    }
+
+    function isApplying(video) {
+        return Number(video.dataset.fbVolumeApplyingUntil || 0) > Date.now();
+    }
+
+    function markGuard(video, duration = REEL_GUARD_MS) {
+        video.dataset.fbVolumeGuardUntil = String(Date.now() + duration);
+    }
+
+    function isGuarded(video) {
+        return Number(video.dataset.fbVolumeGuardUntil || 0) > Date.now();
+    }
+
+    function hasManualIntent() {
+        return (
+            isPointerDown || Date.now() - lastManualKeyAt < MANUAL_KEY_WINDOW_MS
+        );
+    }
 
     function applyVolume(video) {
         try {
+            preferredVolume = getStoredVolume();
+            markGuard(video);
+            markApplying(video);
             video.muted = false;
             video.defaultMuted = false;
-
-            // Apply saved/preferred volume
             video.volume = preferredVolume;
 
-            // Facebook sometimes changes volume later
             setTimeout(() => {
+                markApplying(video);
                 video.muted = false;
                 video.volume = preferredVolume;
-            }, 300);
+            }, 250);
+
+            setTimeout(() => {
+                markApplying(video);
+                video.muted = false;
+                video.volume = preferredVolume;
+            }, 900);
         } catch (e) {
             console.error("[Unmute FB Video]", e);
         }
@@ -50,32 +97,42 @@
 
     function processVideos() {
         document.querySelectorAll("video").forEach((video) => {
-            // Apply immediately
-            applyVolume(video);
-
-            // Prevent duplicate listeners
             if (video.dataset.fbVolumeFixed) return;
             video.dataset.fbVolumeFixed = "1";
+            applyVolume(video);
 
-            // Detect manual volume changes
             video.addEventListener("volumechange", () => {
                 try {
-                    // If muted, just unmute
+                    if (isApplying(video)) {
+                        return;
+                    }
+
                     if (video.muted) {
                         video.muted = false;
                     }
 
-                    // Save user-changed volume
-                    if (Math.abs(video.volume - preferredVolume) > 0.01) {
+                    if (Math.abs(video.volume - preferredVolume) <= 0.01) {
+                        return;
+                    }
+
+                    if (hasManualIntent()) {
                         saveVolume(video.volume);
+                        return;
+                    }
+
+                    if (isGuarded(video) || !video.paused) {
+                        applyVolume(video);
                     }
                 } catch (e) {
                     console.error("[Unmute FB Video]", e);
                 }
             });
 
-            // Re-apply when video starts
             video.addEventListener("play", () => {
+                applyVolume(video);
+            });
+
+            video.addEventListener("loadeddata", () => {
                 applyVolume(video);
             });
         });
@@ -94,6 +151,62 @@
         subtree: true,
     });
 
-    // Backup loop
-    setInterval(processVideos, 1500);
+    document.addEventListener(
+        "pointerdown",
+        () => {
+            isPointerDown = true;
+        },
+        true
+    );
+
+    document.addEventListener(
+        "pointerup",
+        () => {
+            isPointerDown = false;
+        },
+        true
+    );
+
+    document.addEventListener(
+        "pointercancel",
+        () => {
+            isPointerDown = false;
+        },
+        true
+    );
+
+    document.addEventListener(
+        "keydown",
+        (event) => {
+            if (
+                [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight",
+                    "Home",
+                    "End",
+                ].includes(event.key)
+            ) {
+                lastManualKeyAt = Date.now();
+            }
+        },
+        true
+    );
+
+    setInterval(() => {
+        document
+            .querySelectorAll('video[data-fb-volume-fixed="1"]')
+            .forEach((video) => {
+                preferredVolume = getStoredVolume();
+
+                if (
+                    !isApplying(video) &&
+                    !video.paused &&
+                    Math.abs(video.volume - preferredVolume) > 0.01
+                ) {
+                    applyVolume(video);
+                }
+            });
+    }, 2000);
 })();
